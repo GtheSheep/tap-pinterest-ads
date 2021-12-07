@@ -1,12 +1,14 @@
 """Stream type classes for tap-pinterest."""
-import copy
 import datetime
+from urllib.parse import urlparse
+from urllib.parse import parse_qs
 
 import requests
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from tap_pinterest_ads.client import PinterestStream
 
+from singer_sdk.helpers.jsonpath import extract_jsonpath
 from singer_sdk.typing import (
     ArrayType,
     ObjectType,
@@ -232,21 +234,24 @@ class AdAnalyticsStream(PinterestStream):
     def get_url_params(
         self, context: Optional[dict], next_page_token: Optional[Any]
     ) -> Optional[dict]:
-        start_date = self.get_starting_timestamp(context)
+        if isinstance(next_page_token, datetime.datetime):
+            start_date = next_page_token
+        else:
+            start_date = self.get_starting_timestamp(context)
         yesterday = datetime.datetime.now(tz=start_date.tzinfo) - datetime.timedelta(days=1)
+        end_date = min(start_date + datetime.timedelta(days=100), yesterday)
         params = {
             'start_date': start_date.strftime('%Y-%m-%d'),
-            'end_date': (
-                min(start_date + datetime.timedelta(days=100), yesterday)
-            ).strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
             'granularity': 'DAY',
             'columns': ','.join(AD_ANALYTICS_COLUMNS),
             'page_size': 100,
         }
-        if next_page_token:
+        if next_page_token and not isinstance(next_page_token, datetime.datetime):
             params['bookmark'] = next_page_token
         self.logger.debug(params)
         return params
+
 
 ACCOUNT_ANALYTICS_COLUMNS = [
     "AD_GROUP_ENTITY_STATUS", "CAMPAIGN_DAILY_SPEND_CAP",
@@ -282,6 +287,7 @@ ACCOUNT_ANALYTICS_COLUMNS = [
     "WEB_CHECKOUT_ROAS"
 ]
 
+
 class AccountAnalyticsStream(PinterestStream):
     name = 'account_analytics'
     parent_stream_type = AdAccountStream
@@ -300,18 +306,39 @@ class AccountAnalyticsStream(PinterestStream):
     def get_url_params(
         self, context: Optional[dict], next_page_token: Optional[Any]
     ) -> Optional[dict]:
-        start_date = self.get_starting_timestamp(context)
+        if isinstance(next_page_token, datetime.datetime):
+            start_date = next_page_token
+        else:
+            start_date = self.get_starting_timestamp(context)
         yesterday = datetime.datetime.now(tz=start_date.tzinfo) - datetime.timedelta(days=1)
+        end_date = min(start_date + datetime.timedelta(days=100), yesterday)
         params = {
             'start_date': start_date.strftime('%Y-%m-%d'),
-            'end_date': (
-                min(start_date + datetime.timedelta(days=100), yesterday)
-            ).strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
             'granularity': 'DAY',
             'columns': ','.join(ACCOUNT_ANALYTICS_COLUMNS),
             'page_size': 100,
         }
-        if next_page_token:
+        if next_page_token and not isinstance(next_page_token, datetime.datetime):
             params['bookmark'] = next_page_token
         self.logger.debug(params)
         return params
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Any:
+        if self.next_page_token_jsonpath:
+            all_matches = extract_jsonpath(
+                self.next_page_token_jsonpath, response.json()
+            )
+            first_match = next(iter(all_matches), None)
+            next_page_token = first_match
+        elif response.headers.get("X-Next-Page", None):
+            next_page_token = response.headers.get("X-Next-Page", None)
+        else:
+            end_date = datetime.datetime.strptime(parse_qs(urlparse(response.request.url).query)['end_date'], '%Y-%m-%d')
+            if end_date < datetime.datetime.now() - datetime.timedelta(days=1):
+                next_page_token = end_date + datetime.timedelta(days=1)
+            else:
+                next_page_token = None
+        return next_page_token
