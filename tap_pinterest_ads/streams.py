@@ -320,3 +320,7 @@ class AccountAnalyticsStream(PinterestStream):
             params['bookmark'] = next_page_token
         self.logger.debug(params)
         return params
+    
+    def post_process(self, row: dict, context: Optional[dict] = None) -> Optional[dict]:
+        row["DATE"] = datetime.datetime.strptime(row["DATE"], "%Y-%m-%d").strftime("%Y-%m-%dT%H:%M:%SZ")
+        return row
