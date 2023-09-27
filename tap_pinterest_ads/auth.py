@@ -20,20 +20,12 @@ class PinterestAuthenticator(OAuthAuthenticator, metaclass=SingletonMeta):
             "refresh_token": self.config['refresh_token']
         }
 
-    # Can probably remove some scopes after testing
     @classmethod
     def create_for_stream(cls, stream) -> "PinterestAuthenticator":
         return cls(
             stream=stream,
             auth_endpoint="https://api.pinterest.com/v5/oauth/token",
-            oauth_scopes=",".join([
-                "ads:read",
-                "boards:read",
-                "boards:read_secret",
-                "pins:read",
-                "pins:read_secret",
-                "user_accounts:read",
-            ])
+            oauth_scopes="ads:read"
         )
 
     def update_access_token(self) -> None:
